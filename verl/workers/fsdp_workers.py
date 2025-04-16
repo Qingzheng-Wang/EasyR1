@@ -21,6 +21,8 @@ import numpy as np
 import psutil
 import torch
 import torch.distributed as dist
+import os
+from peft import PeftModel
 from accelerate import init_empty_weights
 from codetiming import Timer
 from torch.distributed.device_mesh import init_device_mesh
@@ -194,7 +196,7 @@ class FSDPWorker(Worker):
             auto_class = AutoModelForCausalLM
 
         if (not fsdp_config.enable_rank0_init) or self.device_mesh.get_local_rank("fsdp") == 0:
-            model = auto_class.from_pretrained(
+            base_model = auto_class.from_pretrained(
                 model_config.model_path,
                 config=self.model_config,
                 torch_dtype=torch_dtype,
@@ -203,6 +205,14 @@ class FSDPWorker(Worker):
                 low_cpu_mem_usage=True,
                 trust_remote_code=model_config.trust_remote_code,
             )
+
+            if os.path.exists(os.path.join(model_config.adapter_path, "adapter_config.json")):
+                self.print_rank0(f"Loading PEFT adapter from {model_config.adapter_path}")
+                model = PeftModel.from_pretrained(base_model, model_config.adapter_path)
+                model = model.merge_and_unload()
+                self.print_rank0(f"Merge LoRA adapter to model {type(model)}")
+            else:
+                model = base_model
         else:
             with no_init_weights(), init_empty_weights():
                 model = auto_class.from_config(
