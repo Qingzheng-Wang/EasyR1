@@ -17,16 +17,37 @@ from typing import Dict
 
 from mathruler.grader import extract_boxed_content, grade_answer
 
+def step_reward(predict_str: str) -> float:
+    # Identify if there are Step1, Step2, and Step3 in the <think> ... </think>.
+    think_pattern = re.compile(r"<think>(.*?)</think>", re.DOTALL)
+    think_match = re.search(think_pattern, predict_str)
+    
+    if not think_match:
+        return 0.0
+
+    think_content = think_match.group(1)
+    steps = ["Step1", "Step2", "Step3"]
+    step_count = sum(1 for step in steps if step in think_content)
+    
+    return step_count / len(steps)
 
 def format_reward(predict_str: str) -> float:
-    pattern = re.compile(r"<think>.*</think>.*\\boxed\{.*\}.*", re.DOTALL)
+    # Check if the format is <think> ... </think> ... <answer> ... </answer>.
+    pattern = re.compile(r"<think>.*</think>.*<answer>.*</answer>.*", re.DOTALL)
     format_match = re.fullmatch(pattern, predict_str)
     return 1.0 if format_match else 0.0
 
 
 def accuracy_reward(predict_str: str, ground_truth: str) -> float:
-    answer = extract_boxed_content(predict_str)
-    return 1.0 if grade_answer(answer, ground_truth) else 0.0
+    answer_pattern = re.compile(r"<answer>(.*?)</answer>", re.DOTALL)
+    
+    answer_match = re.search(answer_pattern, predict_str)
+    answer = answer_match.group(1).strip() if answer_match else ""
+    
+    gt_match = re.search(answer_pattern, ground_truth)
+    gt_answer = gt_match.group(1).strip() if gt_match else ""
+
+    return 1.0 if answer == gt_answer else 0.0
 
 
 def compute_score(predict_str: str, ground_truth: str, format_weight: float = 0.1) -> Dict[str, float]:
